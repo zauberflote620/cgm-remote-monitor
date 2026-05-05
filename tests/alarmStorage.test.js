@@ -86,7 +86,7 @@ describe('alarmStorage', function () {
     it('normalizes undefined group to "default"', async function () {
       var captured = null;
       var fakeCollection = {
-        updateOne: function (f, u, o) { captured = f; return Promise.resolve({}); }
+        updateOne: function (f) { captured = f; return Promise.resolve({}); }
       };
       var storage = alarmStorage({ store: { collection: function () { return fakeCollection; } } });
       await storage.setSnooze(2, undefined, 1000, 60000);

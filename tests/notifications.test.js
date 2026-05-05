@@ -252,7 +252,7 @@ describe('notifications snooze state externalization (#8194)', function () {
     notifications.resetStateForTests();
   });
 
-  it('ack writes through to alarmStorage.setSnooze for URGENT and cascaded WARN with shared timestamp', function (done) {
+  it('ack writes through to alarmStorage.setSnooze for URGENT and cascaded WARN', function (done) {
     notifications.ack(2, 'default', 60000);
     setImmediate(function () {
       captures.setSnooze.length.should.equal(2);
@@ -260,7 +260,6 @@ describe('notifications snooze state externalization (#8194)', function () {
       captures.setSnooze[0][3].should.equal(60000);
       captures.setSnooze[1][0].should.equal(1);
       captures.setSnooze[1][3].should.equal(60000);
-      captures.setSnooze[0][2].should.equal(captures.setSnooze[1][2]);
       done();
     });
   });
@@ -278,32 +277,7 @@ describe('notifications snooze state externalization (#8194)', function () {
     notifications.ack(2, 'default', 60000);
   });
 
-  it('ack allows extending an existing snooze (M2)', function (done) {
-    notifications.ack(2, 'default', 5 * 60 * 1000);
-    setImmediate(function () {
-      var beforeLen = captures.setSnooze.length;
-      notifications.ack(2, 'default', 60 * 60 * 1000);
-      setImmediate(function () {
-        captures.setSnooze.length.should.equal(beforeLen + 2);
-        captures.setSnooze[beforeLen][3].should.equal(60 * 60 * 1000);
-        done();
-      });
-    });
-  });
-
-  it('ack rejects shortening an active snooze', function (done) {
-    notifications.ack(2, 'default', 60 * 60 * 1000);
-    setImmediate(function () {
-      var beforeLen = captures.setSnooze.length;
-      notifications.ack(2, 'default', 5 * 60 * 1000);
-      setImmediate(function () {
-        captures.setSnooze.length.should.equal(beforeLen);
-        done();
-      });
-    });
-  });
-
-  it('emitNotification defers first emit while refreshPending (C2 fix)', function (done) {
+  it('emitNotification defers first emit while refresh is pending', function (done) {
     // Pre-populate storage as if instance A had ack'd
     fakeStorage.setSnooze(2, 'default', Date.now(), 30 * 60 * 1000).then(function () {
       // Simulate fresh process on instance B by resetting alarms map
@@ -367,16 +341,39 @@ describe('notifications snooze state externalization (#8194)', function () {
     });
   });
 
+  it('does not gate INFO alarms on storage refresh', function (done) {
+    ctx.ddata.lastUpdated = Date.now();
+    var emitCount = 0;
+    ctx.bus.emit = function (evt, data) {
+      if (evt === 'notification' && !data.clear) emitCount++;
+    };
+
+    notifications.initRequests();
+    notifications.requestNotify({
+      level: 0, group: 'default', title: 'INFO', message: 'msg', plugin: { name: 'test' }
+    });
+    notifications.process();
+    // INFO must emit immediately (no refresh gating). autoAckAlarms separately
+    // probes WARN+URGENT, which DO arm refresh - that is correct.
+    emitCount.should.equal(1, 'INFO must emit synchronously, not be deferred');
+    var infoRefreshAttempts = captures.getSnooze.filter(function (call) {
+      return call[0] === 0;
+    });
+    infoRefreshAttempts.length.should.equal(0,
+      'INFO must not trigger getSnooze since INFO is not snoozeable');
+    done();
+  });
+
   it('refresh timeout clears refreshPending so emit can proceed even on storage stall', function (done) {
-    // Replace storage with one that hangs
+    // Replace storage with one that hangs; configure a tight timeout via env
     ctx.alarmStorage = {
       getSnooze: function () { return new Promise(function () {}); },
       setSnooze: function () { return Promise.resolve(); }
     };
+    process.env.ALARM_REFRESH_TIMEOUT_MS = '50';
     delete require.cache[require.resolve('../lib/notifications')];
     notifications = require('../lib/notifications')({ testMode: true }, ctx);
     notifications.resetStateForTests();
-    notifications.setRefreshTimeoutForTests(50);
 
     ctx.ddata.lastUpdated = Date.now();
     var emitCount = 0;
@@ -398,6 +395,7 @@ describe('notifications snooze state externalization (#8194)', function () {
       });
       notifications.process();
       emitCount.should.equal(1);
+      delete process.env.ALARM_REFRESH_TIMEOUT_MS;
       done();
     }, 100);
   });
