@@ -205,3 +205,200 @@ describe('notifications', function ( ) {
   });
 
 });
+
+describe('notifications snooze state externalization (#8194)', function () {
+  var notifications, fakeStorage, captures, ctx;
+
+  function makeStorage () {
+    var stored = {};
+    captures = { setSnooze: [], getSnooze: [] };
+    return {
+      _stored: stored,
+      getSnooze: async function (level, group) {
+        captures.getSnooze.push([level, group]);
+        var key = level + '-' + (group || 'default');
+        var doc = stored[key];
+        if (doc && doc.expiresAt > new Date()) return doc;
+        return null;
+      },
+      setSnooze: async function (level, group, lastAckTime, silenceTime) {
+        captures.setSnooze.push([level, group, lastAckTime, silenceTime]);
+        var ng = group || 'default';
+        var newExpiresAt = new Date(lastAckTime + silenceTime);
+        var key = level + '-' + ng;
+        var existing = stored[key];
+        if (!existing || newExpiresAt > existing.expiresAt) {
+          stored[key] = {
+            _id: key, level: level, group: ng,
+            lastAckTime: lastAckTime, silenceTime: silenceTime,
+            expiresAt: newExpiresAt
+          };
+        }
+        return null;
+      }
+    };
+  }
+
+  beforeEach(function () {
+    fakeStorage = makeStorage();
+    ctx = {
+      ddata: { lastUpdated: 0 },
+      bus: { emit: function () {} },
+      levels: { URGENT: 2, WARN: 1, INFO: 0, toDisplay: function (l) { return 'L' + l; } },
+      alarmStorage: fakeStorage
+    };
+    delete require.cache[require.resolve('../lib/notifications')];
+    notifications = require('../lib/notifications')({ testMode: true }, ctx);
+    notifications.resetStateForTests();
+  });
+
+  it('ack writes through to alarmStorage.setSnooze for URGENT and cascaded WARN with shared timestamp', function (done) {
+    notifications.ack(2, 'default', 60000);
+    setImmediate(function () {
+      captures.setSnooze.length.should.equal(2);
+      captures.setSnooze[0][0].should.equal(2);
+      captures.setSnooze[0][3].should.equal(60000);
+      captures.setSnooze[1][0].should.equal(1);
+      captures.setSnooze[1][3].should.equal(60000);
+      captures.setSnooze[0][2].should.equal(captures.setSnooze[1][2]);
+      done();
+    });
+  });
+
+  it('ack normalizes undefined group to default in storage write', function (done) {
+    notifications.ack(2, undefined, 60000);
+    setImmediate(function () {
+      captures.setSnooze[0][1].should.equal('default');
+      done();
+    });
+  });
+
+  it('ack does not throw when ctx.alarmStorage is missing (single-instance fallback)', function () {
+    ctx.alarmStorage = undefined;
+    notifications.ack(2, 'default', 60000);
+  });
+
+  it('ack allows extending an existing snooze (M2)', function (done) {
+    notifications.ack(2, 'default', 5 * 60 * 1000);
+    setImmediate(function () {
+      var beforeLen = captures.setSnooze.length;
+      notifications.ack(2, 'default', 60 * 60 * 1000);
+      setImmediate(function () {
+        captures.setSnooze.length.should.equal(beforeLen + 2);
+        captures.setSnooze[beforeLen][3].should.equal(60 * 60 * 1000);
+        done();
+      });
+    });
+  });
+
+  it('ack rejects shortening an active snooze', function (done) {
+    notifications.ack(2, 'default', 60 * 60 * 1000);
+    setImmediate(function () {
+      var beforeLen = captures.setSnooze.length;
+      notifications.ack(2, 'default', 5 * 60 * 1000);
+      setImmediate(function () {
+        captures.setSnooze.length.should.equal(beforeLen);
+        done();
+      });
+    });
+  });
+
+  it('emitNotification defers first emit while refreshPending (C2 fix)', function (done) {
+    // Pre-populate storage as if instance A had ack'd
+    fakeStorage.setSnooze(2, 'default', Date.now(), 30 * 60 * 1000).then(function () {
+      // Simulate fresh process on instance B by resetting alarms map
+      notifications.resetStateForTests();
+
+      var emitCount = 0;
+      ctx.bus.emit = function (evt, data) {
+        if (evt === 'notification' && !data.clear) emitCount++;
+      };
+      ctx.ddata.lastUpdated = Date.now();
+
+      notifications.initRequests();
+      notifications.requestNotify({
+        level: 2, group: 'default', title: 'Test', message: 'msg', plugin: { name: 'test' }
+      });
+      notifications.process();
+
+      // Synchronously: emit blocked by refreshPending
+      emitCount.should.equal(0);
+
+      // After storage callback resolves
+      setImmediate(function () {
+        setImmediate(function () {
+          // Snooze loaded from storage; alarm still snoozed
+          notifications.initRequests();
+          notifications.requestNotify({
+            level: 2, group: 'default', title: 'Test', message: 'msg', plugin: { name: 'test' }
+          });
+          notifications.process();
+          emitCount.should.equal(0);
+          done();
+        });
+      });
+    });
+  });
+
+  it('first emit blocked while refreshPending, then unblocks if storage shows no snooze', function (done) {
+    ctx.ddata.lastUpdated = Date.now();
+    var emitCount = 0;
+    ctx.bus.emit = function (evt, data) {
+      if (evt === 'notification' && !data.clear) emitCount++;
+    };
+
+    notifications.initRequests();
+    notifications.requestNotify({
+      level: 2, group: 'default', title: 'Test', message: 'msg', plugin: { name: 'test' }
+    });
+    notifications.process();
+    emitCount.should.equal(0);
+
+    setImmediate(function () {
+      setImmediate(function () {
+        notifications.initRequests();
+        notifications.requestNotify({
+          level: 2, group: 'default', title: 'Test', message: 'msg', plugin: { name: 'test' }
+        });
+        notifications.process();
+        emitCount.should.equal(1);
+        done();
+      });
+    });
+  });
+
+  it('refresh timeout clears refreshPending so emit can proceed even on storage stall', function (done) {
+    // Replace storage with one that hangs
+    ctx.alarmStorage = {
+      getSnooze: function () { return new Promise(function () {}); },
+      setSnooze: function () { return Promise.resolve(); }
+    };
+    delete require.cache[require.resolve('../lib/notifications')];
+    notifications = require('../lib/notifications')({ testMode: true }, ctx);
+    notifications.resetStateForTests();
+    notifications.setRefreshTimeoutForTests(50);
+
+    ctx.ddata.lastUpdated = Date.now();
+    var emitCount = 0;
+    ctx.bus.emit = function (evt, data) {
+      if (evt === 'notification' && !data.clear) emitCount++;
+    };
+
+    notifications.initRequests();
+    notifications.requestNotify({
+      level: 2, group: 'default', title: 'Test', message: 'msg', plugin: { name: 'test' }
+    });
+    notifications.process();
+    emitCount.should.equal(0);
+
+    setTimeout(function () {
+      notifications.initRequests();
+      notifications.requestNotify({
+        level: 2, group: 'default', title: 'Test', message: 'msg', plugin: { name: 'test' }
+      });
+      notifications.process();
+      emitCount.should.equal(1);
+      done();
+    }, 100);
+  });
+});
