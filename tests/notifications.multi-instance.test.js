@@ -97,6 +97,21 @@ describe('notifications multi-instance', function () {
     });
   });
 
+  it('URGENT ack on instance A persists both URGENT and WARN rows for instance B', function (done) {
+    instanceA.ack(2, 'default', 30 * 60 * 1000);
+    setImmediate(function () {
+      setImmediate(function () {
+        var urgent = sharedStorage._stored['2-default'];
+        var warn = sharedStorage._stored['1-default'];
+        urgent.should.be.an.Object();
+        warn.should.be.an.Object();
+        urgent.silenceTime.should.equal(30 * 60 * 1000);
+        warn.silenceTime.should.equal(30 * 60 * 1000);
+        done();
+      });
+    });
+  });
+
   it('shorter snooze on instance B does not clobber longer snooze from instance A', function (done) {
     instanceA.ack(2, 'default', 60 * 60 * 1000); // 60 min on A
     setImmediate(function () {
