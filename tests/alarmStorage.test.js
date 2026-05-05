@@ -109,4 +109,25 @@ describe('alarmStorage', function () {
       thrown.message.should.equal('mongo blip');
     });
   });
+
+  describe('ensureIndexes', function () {
+    it('creates a TTL index on expiresAt', async function () {
+      var captured = null;
+      var fakeCollection = {
+        createIndex: function (spec, opts) {
+          captured = { spec: spec, opts: opts };
+          return Promise.resolve('expiresAt_1');
+        }
+      };
+      var storage = alarmStorage({ store: { collection: function () { return fakeCollection; } } });
+      await storage.ensureIndexes();
+      captured.spec.should.deepEqual({ expiresAt: 1 });
+      captured.opts.expireAfterSeconds.should.equal(0);
+    });
+
+    it('is a no-op when store is unavailable', async function () {
+      var storage = alarmStorage({ store: null });
+      await storage.ensureIndexes();
+    });
+  });
 });
