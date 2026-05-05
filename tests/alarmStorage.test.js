@@ -58,4 +58,55 @@ describe('alarmStorage', function () {
       captured._id.should.equal('2-default');
     });
   });
+
+  describe('setSnooze', function () {
+    it('upserts with conditional aggregation pipeline (only-if-newer)', async function () {
+      var captured = null;
+      var fakeCollection = {
+        updateOne: function (filter, update, opts) {
+          captured = { filter: filter, update: update, opts: opts };
+          return Promise.resolve({ matchedCount: 0, upsertedCount: 1 });
+        }
+      };
+      var storage = alarmStorage({ store: { collection: function () { return fakeCollection; } } });
+      var lastAckTime = 1000;
+      var silenceTime = 30 * 60 * 1000;
+      await storage.setSnooze(2, 'default', lastAckTime, silenceTime);
+
+      captured.filter.should.deepEqual({ _id: '2-default' });
+      captured.opts.should.deepEqual({ upsert: true });
+      captured.update.should.be.an.Array();
+      captured.update[0].should.have.property('$set');
+      var setStage = captured.update[0].$set;
+      setStage.expiresAt.$cond[0].$gt[0].getTime().should.equal(lastAckTime + silenceTime);
+      setStage.lastAckTime.$cond[1].should.equal(lastAckTime);
+      setStage.silenceTime.$cond[1].should.equal(silenceTime);
+    });
+
+    it('normalizes undefined group to "default"', async function () {
+      var captured = null;
+      var fakeCollection = {
+        updateOne: function (f, u, o) { captured = f; return Promise.resolve({}); }
+      };
+      var storage = alarmStorage({ store: { collection: function () { return fakeCollection; } } });
+      await storage.setSnooze(2, undefined, 1000, 60000);
+      captured._id.should.equal('2-default');
+    });
+
+    it('is a no-op when store is unavailable', async function () {
+      var storage = alarmStorage({ store: null });
+      await storage.setSnooze(2, 'default', 1000, 60000);
+    });
+
+    it('rejects with an error when the driver rejects', async function () {
+      var fakeCollection = {
+        updateOne: function () { return Promise.reject(new Error('mongo blip')); }
+      };
+      var storage = alarmStorage({ store: { collection: function () { return fakeCollection; } } });
+      var thrown = null;
+      try { await storage.setSnooze(2, 'default', 1000, 60000); } catch (e) { thrown = e; }
+      thrown.should.be.an.Error();
+      thrown.message.should.equal('mongo blip');
+    });
+  });
 });
