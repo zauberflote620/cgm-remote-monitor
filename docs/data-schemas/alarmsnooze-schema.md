@@ -1,8 +1,8 @@
 # Alarm Snooze Schema Documentation
 
-**Document Version:** 1.0  
-**Last Updated:** May 2026  
-**Status:** Active  
+**Document Version:** 1.0
+**Last Updated:** May 2026
+**Status:** Active
 **Source:** Code analysis (`lib/storage/alarmStorage.js`, `lib/notifications.js`)
 
 ---
@@ -11,8 +11,8 @@
 
 The `alarmsnooze` collection stores per-(level, group) alarm snooze state so that an ack on one cgm-remote-monitor instance is honored by other instances. Without this, multi-instance deploys (Cloud Run, k8s, Heroku scale-out) re-emit alarms that the user has already acked, because the legacy `var alarms = {}` map at `lib/notifications.js` is process-local.
 
-**Collection Name:** `alarmsnooze`  
-**Primary Key:** `_id = level + '-' + group` (string composite)  
+**Collection Name:** `alarmsnooze`
+**Primary Key:** `_id = level + '-' + group` (string composite)
 **TTL:** Mongo TTL monitor cleans expired docs based on `expiresAt`
 
 ---

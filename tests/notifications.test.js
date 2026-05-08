@@ -314,7 +314,7 @@ describe('notifications snooze state externalization (#8194)', function () {
     });
   });
 
-  it('first emit blocked while refreshPending, then unblocks if storage shows no snooze', function (done) {
+  it('first emit blocked while refreshPending, then retried immediately once storage shows no snooze', function (done) {
     ctx.ddata.lastUpdated = Date.now();
     var emitCount = 0;
     ctx.bus.emit = function (evt, data) {
@@ -326,18 +326,57 @@ describe('notifications snooze state externalization (#8194)', function () {
       level: 2, group: 'default', title: 'Test', message: 'msg', plugin: { name: 'test' }
     });
     notifications.process();
-    emitCount.should.equal(0);
+    emitCount.should.equal(0, 'emit blocked synchronously while refreshPending');
 
     setImmediate(function () {
+      // Promise microtask resolved before setImmediate: pending notify already retried
+      emitCount.should.equal(1, 'pending notify retried immediately once storage resolves');
       setImmediate(function () {
         notifications.initRequests();
         notifications.requestNotify({
           level: 2, group: 'default', title: 'Test', message: 'msg', plugin: { name: 'test' }
         });
         notifications.process();
-        emitCount.should.equal(1);
+        emitCount.should.equal(2, 'subsequent process() cycle emits again for ongoing alarm condition');
         done();
       });
+    });
+  });
+
+  it('pending notify fires even when getSnooze rejects (fail-open for storage error)', function (done) {
+    ctx.alarmStorage = {
+      getSnooze: function () { return Promise.reject(new Error('mongo down')); },
+      setSnooze: function () { return Promise.resolve(); }
+    };
+    delete require.cache[require.resolve('../lib/notifications')];
+    var notifs = require('../lib/notifications')({ testMode: true }, ctx);
+    notifs.resetStateForTests();
+
+    ctx.ddata.lastUpdated = Date.now();
+    var emitCount = 0;
+    var warnMessages = [];
+    var origWarn = console.warn;
+    console.warn = function () { warnMessages.push(Array.prototype.slice.call(arguments).join(' ')); origWarn.apply(console, arguments); };
+
+    ctx.bus.emit = function (evt, data) {
+      if (evt === 'notification' && !data.clear) emitCount++;
+    };
+
+    notifs.initRequests();
+    notifs.requestNotify({
+      level: 2, group: 'default', title: 'Test', message: 'msg', plugin: { name: 'test' }
+    });
+    notifs.process();
+    emitCount.should.equal(0, 'emit blocked synchronously while refreshPending');
+
+    setImmediate(function () {
+      // Promise rejection resolves as microtask before setImmediate:
+      // catch handler fires, pending notify retried (fail-open)
+      emitCount.should.equal(1, 'pending notify fires after storage rejection (fail-open)');
+      warnMessages.some(function (m) { return m.indexOf('getSnooze failed') !== -1; })
+        .should.be.true('storage error must be logged so operators can detect storage failures');
+      console.warn = origWarn;
+      done();
     });
   });
 
