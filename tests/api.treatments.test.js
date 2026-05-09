@@ -1,6 +1,5 @@
 'use strict';
 
-var _ = require('lodash');
 var request = require('supertest');
 var should = require('should');
 var language = require('../lib/language')();
@@ -49,9 +48,7 @@ describe('Treatment API', function ( ) {
             done(err);
           } else {
             self.ctx.treatments.list({}, function (err, list) {
-              var sorted = _.sortBy(list, function (treatment) {
-                return treatment.created_at;
-              });
+              var sorted = list.sort((a, b) => a.created_at.localeCompare(b.created_at));
               sorted.length.should.equal(2);
               sorted[0].glucose.should.equal(100);
               sorted[0].notes.should.equal('<img>');
@@ -87,7 +84,7 @@ describe('Treatment API', function ( ) {
 */
 
   it('post single treatments in zoned time format', function (done) {
-   
+
     var current_time = Date.now();
     console.log('Testing date with local format: ', _moment(current_time).format("YYYY-MM-DDTHH:mm:ss.SSSZZ"));
 
@@ -102,9 +99,7 @@ describe('Treatment API', function ( ) {
             done(err);
           } else {
             self.ctx.treatments.list({}, function (err, list) {
-              var sorted = _.sortBy(list, function (treatment) {
-                return treatment.created_at;
-              });
+              var sorted = list.sort((a, b) => a.created_at.localeCompare(b.created_at));
               console.log(sorted);
               sorted.length.should.equal(1);
               sorted[0].glucose.should.equal(100);
@@ -173,9 +168,7 @@ describe('Treatment API', function ( ) {
             done(err);
           } else {
             self.ctx.treatments.list({}, function (err, list) {
-              var sorted = _.sortBy(list, function (treatment) {
-                return treatment.created_at;
-              });
+              var sorted = list.sort((a, b) => a.created_at.localeCompare(b.created_at));
 
               if (sorted.length !== 3) {
                 console.info('unexpected result length, sorted treatments:', sorted);

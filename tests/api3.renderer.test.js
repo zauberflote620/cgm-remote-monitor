@@ -11,7 +11,6 @@ describe('API3 output renderers', function() {
     , authSubject = require('./fixtures/api3/authSubject')
     , opTools = require('../lib/api3/shared/operationTools')
     , utils = require('./fixtures/api3/utils')
-    , _ = require('lodash')
     , xml2js = require('xml2js')
     , csvParse = require('csv-parse/lib/sync')
     ;
@@ -97,9 +96,9 @@ describe('API3 output renderers', function() {
    * @param arrModel
    * @param arr
    */
-  self.checkItems = function checkItems (arrModel, arr) {
+  self.checkItems = function checkItems(arrModel, arr) {
     for (let itemModel of arrModel) {
-      const item = _.find(arr, (doc) => doc.identifier === itemModel.identifier);
+      const item = arr.find(doc => doc.identifier === itemModel.identifier);
       item.should.not.be.empty();
       self.checkProps(itemModel, item);
     }
@@ -296,4 +295,3 @@ describe('API3 output renderers', function() {
     await deleteDoc(self.doc2.identifier);
   });
 });
-

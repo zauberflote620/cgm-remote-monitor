@@ -166,11 +166,11 @@ module.exports = {
       'process/browser': require.resolve('process/browser'),
       events: require.resolve('events/'),
       buffer: require.resolve('buffer/'),
+      crypto: false,
       vm: false
     },
     alias: {
       stream: 'stream-browserify',
-      crypto: 'crypto-browserify',
       buffer: 'buffer',
     }
   }

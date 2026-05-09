@@ -1,7 +1,6 @@
 'use strict';
 
 require('should');
-var _ = require('lodash');
 var benv = require('benv');
 var read = require('fs').readFileSync;
 var serverSettings = require('./fixtures/default-server-settings');
@@ -95,7 +94,7 @@ describe('admintools', function ( ) {
       benv.require(__dirname + '/../node_modules/.cache/_ns_cache/public/js/bundle.app.js');
 
       self.$ = $;
-      
+
       self.localCookieStorage = self.localStorage = self.$.localStorage = require('./fixtures/localstorage');
 
       self.$.fn.tooltip = function mockTooltip ( ) { };
@@ -109,7 +108,7 @@ describe('admintools', function ( ) {
         }
         maybeCall('open', opts);
 
-        _.forEach(opts.buttons, function (button) {
+        opts.buttons.forEach(function (button) {
           maybeCall('click', button);
         });
       };
@@ -119,7 +118,7 @@ describe('admintools', function ( ) {
 
       //var filesys = require('fs');
       //var logfile = filesys.createWriteStream('out.txt', { flags: 'a'} )
-      
+
       self.$.ajax = function mockAjax (url, opts) {
         if (url && url.url) {
           url = url.url;
@@ -180,7 +179,7 @@ describe('admintools', function ( ) {
       //d3.timer = function mockTimer() { };
       let timer = d3.timer(function mockTimer() { });
       timer.stop();
-      
+
       benv.expose({
         $: self.$
         , jQuery: self.$
@@ -241,19 +240,19 @@ describe('admintools', function ( ) {
      };
 
     client.init();
-    
+
     client.dataUpdate(nowData);
-    
+
     //var result = $('body').html();
     //var filesys = require('fs');
     //var logfile = filesys.createWriteStream('out.txt', { flags: 'a'} )
     //logfile.write($('body').html());
-    
+
     //console.log(result);
 
     $('#admin_cleanstatusdb_0_html + button').text().should.equal('Delete all documents'); // devicestatus button
     $('#admin_cleanstatusdb_0_status').text().should.equal('Database contains 2 records'); // devicestatus init result
-    
+
     $('#admin_cleanstatusdb_0_html + button').click();
     $('#admin_cleanstatusdb_0_status').text().should.equal('All records removed ...'); // devicestatus code result
 
@@ -265,13 +264,13 @@ describe('admintools', function ( ) {
 
     $('#admin_futureitems_0_html + button').text().should.equal('Remove treatments in the future'); // futureitems button 0
     $('#admin_futureitems_0_status').text().should.equal('Database contains 1 future records'); // futureitems init result 0
-    
+
     $('#admin_futureitems_0_html + button').click();
     $('#admin_futureitems_0_status').text().should.equal('Record 5609a9203c8104a8195b1c1e removed ...'); // futureitems code result 0
 
     $('#admin_futureitems_1_html + button').text().should.equal('Remove entries in the future'); // futureitems button 1
     $('#admin_futureitems_1_status').text().should.equal('Database contains 1 future records'); // futureitems init result 1
-    
+
     $('#admin_futureitems_1_html + button').click();
     $('#admin_futureitems_1_status').text().should.equal('Record 560983f326c5a592d9b9ae0c removed ...'); // futureitems code result 1
 
